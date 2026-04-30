@@ -7,8 +7,16 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\LogiFlow.Application\LogiFlow.Application.csproj" />
-      <ProjectReference Include="..\LogiFlow.Domain\LogiFlow.Domain.csproj" />
+        <ProjectReference Include="..\LogiFlow.Application\LogiFlow.Application.csproj"/>
+        <ProjectReference Include="..\LogiFlow.Domain\LogiFlow.Domain.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Remove="Class1.cs"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.7"/>
     </ItemGroup>
 
 </Project>
