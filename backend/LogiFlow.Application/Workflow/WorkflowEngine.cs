@@ -5,7 +5,12 @@ using LogiFlow.Domain.Enums;
 
 namespace LogiFlow.Application.Workflow;
 
-public class WorkflowEngine(IDeliveryRepository deliveryRepository, IDeliveryEventRepository eventRepository)
+public class WorkflowEngine(
+    IDeliveryRepository deliveryRepository,
+    IDeliveryEventRepository eventRepository,
+    IRoutingService routingService,
+    ITrackingSimulationService trackingSimulationService,
+    IDeliveryRouteRepository routeRepository)
     : IWorkflowEngine
 {
     private static readonly IReadOnlyDictionary<DeliveryState, DeliveryState[]> AllowedTransitions =
@@ -31,21 +36,50 @@ public class WorkflowEngine(IDeliveryRepository deliveryRepository, IDeliveryEve
         if (!IsTransitionAllowed(currentState, targetState))
             throw new InvalidWorkflowTransitionException(currentState, targetState);
 
+        var events = new List<DeliveryEvent>();
         delivery.UpdateState(targetState);
 
-        var deliveryEvent = new DeliveryEvent
+        events.Add(new DeliveryEvent
         {
             DeliveryId = delivery.Id,
             Type = DeliveryEventType.StateChanged,
             FromState = currentState,
             ToState = targetState,
             Message = $"Delivery state changed from {currentState} to {targetState}."
-        };
+        });
+
+        switch (currentState, targetState)
+        {
+            case (DeliveryState.Planned, DeliveryState.Assigned):
+                var route = await routingService.CalculateRouteAsync(delivery.Id, delivery.Origin, delivery.Destination,
+                    cancellationToken);
+                await routeRepository.AddAsync(route, cancellationToken);
+                delivery.AttachRoute(route.Id);
+
+                events.Add(new DeliveryEvent
+                {
+                    DeliveryId = delivery.Id,
+                    Type = DeliveryEventType.RouteGenerated,
+                    Message = $"Route generated with {route.Points.Count} points " +
+                              $"and total distance {route.TotalDistanceMeters:F0} meters."
+                });
+                break;
+            case (DeliveryState.Assigned, DeliveryState.InTransit):
+                await trackingSimulationService.StartTrackingAsync(delivery.Id, cancellationToken);
+                events.Add(new DeliveryEvent
+                {
+                    DeliveryId = delivery.Id,
+                    Type = DeliveryEventType.TrackingStarted,
+                    Message = "Tracking simulation started."
+                });
+                break;
+        }
 
         await deliveryRepository.UpdateAsync(delivery, cancellationToken);
-        await eventRepository.AddAsync(deliveryEvent, cancellationToken);
 
-        return new WorkflowTransitionResult(delivery, deliveryEvent);
+        foreach (var deliveryEvent in events) await eventRepository.AddAsync(deliveryEvent, cancellationToken);
+
+        return new WorkflowTransitionResult(delivery, events);
     }
 
     private static bool IsTransitionAllowed(DeliveryState currentState, DeliveryState targetState)

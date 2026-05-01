@@ -1,6 +1,42 @@
-@LogiFlow.Api_HostAddress = http://localhost:5007
+@baseUrl = http://localhost:5007
+@deliveryId = 632bba86-2cd8-4d58-b6f6-4a43b34f0e40
 
-GET {{LogiFlow.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Create delivery
+POST {{baseUrl}}/api/deliveries
+Content-Type: application/json
 
-###
+{
+  "code": "DEL-001",
+  "originLatitude": 52.520008,
+  "originLongitude": 13.404954,
+  "destinationLatitude": 52.5170365,
+  "destinationLongitude": 13.3888599
+}
+
+### Get all deliveries
+GET {{baseUrl}}/api/deliveries
+
+### Get delivery by id
+GET {{baseUrl}}/api/deliveries/{{deliveryId}}
+
+### Transition to Assigned
+POST {{baseUrl}}/api/deliveries/{{deliveryId}}/transition
+Content-Type: application/json
+
+{
+  "targetState": "Assigned"
+}
+
+### Get route
+GET {{baseUrl}}/api/deliveries/{{deliveryId}}/route
+
+### Transition to InTransit
+POST {{baseUrl}}/api/deliveries/{{deliveryId}}/transition
+Content-Type: application/json
+
+{
+  "targetState": "InTransit"
+}
+
+### Get events
+GET {{baseUrl}}/api/deliveries/{{deliveryId}}/events

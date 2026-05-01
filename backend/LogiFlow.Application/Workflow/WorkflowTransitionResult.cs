@@ -4,5 +4,5 @@ namespace LogiFlow.Application.Workflow;
 
 public sealed record WorkflowTransitionResult(
     Delivery Delivery,
-    DeliveryEvent Event
+    IReadOnlyList<DeliveryEvent> Events
 );

@@ -14,6 +14,7 @@ namespace LogiFlow.Api.Controllers;
 public sealed class DeliveriesController(
     IDeliveryRepository deliveryRepository,
     IDeliveryEventRepository eventRepository,
+    IDeliveryRouteRepository routeRepository,
     IWorkflowEngine workflowEngine
 ) : ControllerBase
 {
@@ -94,5 +95,17 @@ public sealed class DeliveriesController(
 
         var events = await eventRepository.GetByDeliveryIdAsync(id, cancellationToken);
         return Ok(events);
+    }
+
+    [HttpGet("{id:guid}/route")]
+    public async Task<ActionResult<DeliveryRoute>> GetRoute(Guid id, CancellationToken cancellationToken)
+    {
+        var delivery = await deliveryRepository.GetByIdAsync(id, cancellationToken);
+        if (delivery is null) return NotFound();
+
+        var route = await routeRepository.GetByDeliveryIdAsync(id, cancellationToken);
+        if (route is null) return NotFound(new { error = "Route has not been generated yet." });
+
+        return Ok(route);
     }
 }

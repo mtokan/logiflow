@@ -1,5 +1,8 @@
 using System.Text.Json.Serialization;
+using LogiFlow.Api.Hubs;
+using LogiFlow.Api.Realtime;
 using LogiFlow.Application;
+using LogiFlow.Application.Abstractions;
 using LogiFlow.Infrastructure;
 using Scalar.AspNetCore;
 
@@ -14,6 +17,8 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<ITrackingUpdatePublisher, SignalRTrackingUpdatePublisher>();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
@@ -31,6 +36,10 @@ app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
+app.UseStaticFiles();
+
 app.MapControllers();
+
+app.MapHub<TrackingHub>("/hubs/tracking");
 
 app.Run();
