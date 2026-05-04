@@ -1,5 +1,6 @@
 using LogiFlow.Application.Abstractions;
 using LogiFlow.Application.Deliveries;
+using LogiFlow.Application.Tracking;
 using LogiFlow.Domain.Entities;
 using LogiFlow.Domain.Enums;
 
@@ -9,7 +10,7 @@ public class WorkflowEngine(
     IDeliveryRepository deliveryRepository,
     IDeliveryEventRepository eventRepository,
     IRoutingService routingService,
-    ITrackingSimulationService trackingSimulationService,
+    ITrackingUpdatePublisher trackingUpdatePublisher,
     IDeliveryRouteRepository routeRepository)
     : IWorkflowEngine
 {
@@ -64,20 +65,32 @@ public class WorkflowEngine(
                               $"and total distance {route.TotalDistanceMeters:F0} meters."
                 });
                 break;
-            case (DeliveryState.Assigned, DeliveryState.InTransit):
-                await trackingSimulationService.StartTrackingAsync(delivery.Id, cancellationToken);
-                events.Add(new DeliveryEvent
-                {
-                    DeliveryId = delivery.Id,
-                    Type = DeliveryEventType.TrackingStarted,
-                    Message = "Tracking simulation started."
-                });
-                break;
         }
 
         await deliveryRepository.UpdateAsync(delivery, cancellationToken);
 
         foreach (var deliveryEvent in events) await eventRepository.AddAsync(deliveryEvent, cancellationToken);
+
+        foreach (var deliveryEvent in events)
+        {
+            await trackingUpdatePublisher.PublishDeliveryEventCreatedAsync(new DeliveryEventCreated(
+                deliveryEvent.Id,
+                deliveryEvent.DeliveryId,
+                deliveryEvent.Type,
+                deliveryEvent.FromState,
+                deliveryEvent.ToState,
+                deliveryEvent.Message,
+                deliveryEvent.CreatedAt
+            ), cancellationToken);
+
+            if (deliveryEvent is { Type: DeliveryEventType.StateChanged, FromState: not null, ToState: not null })
+                await trackingUpdatePublisher.PublishDeliveryStateChangedAsync(new DeliveryStateChanged(
+                    deliveryEvent.DeliveryId,
+                    deliveryEvent.FromState.Value,
+                    deliveryEvent.ToState.Value,
+                    deliveryEvent.CreatedAt
+                ), cancellationToken);
+        }
 
         return new WorkflowTransitionResult(delivery, events);
     }

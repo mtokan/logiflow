@@ -12,4 +12,16 @@ public sealed class SignalRTrackingUpdatePublisher(IHubContext<TrackingHub> hubC
     {
         return hubContext.Clients.All.SendAsync("VehiclePositionUpdated", update, cancellationToken);
     }
+
+    public Task PublishDeliveryStateChangedAsync(DeliveryStateChanged update,
+        CancellationToken cancellationToken = default)
+    {
+        return hubContext.Clients.All.SendAsync("DeliveryStateChanged", update, cancellationToken);
+    }
+
+    public Task PublishDeliveryEventCreatedAsync(DeliveryEventCreated update,
+        CancellationToken cancellationToken = default)
+    {
+        return hubContext.Clients.All.SendAsync("DeliveryEventCreated", update, cancellationToken);
+    }
 }

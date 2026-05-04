@@ -1,21 +1,26 @@
 using System.Collections.Concurrent;
 using LogiFlow.Application.Abstractions;
 using LogiFlow.Application.Tracking;
+using LogiFlow.Application.Workflow;
 using LogiFlow.Domain.Entities;
+using LogiFlow.Domain.Enums;
 using LogiFlow.Domain.ValueObjects;
 
 namespace LogiFlow.Infrastructure.Simulation;
 
-public class InMemoryTrackingSimulationService(
+public sealed class InMemoryTrackingSimulationService(
     IDeliveryRepository deliveryRepository,
     ITrackingUpdatePublisher trackingUpdatePublisher,
     IEtaService etaService,
+    ITrafficSimulationService trafficSimulationService,
+    IWorkflowEngine workflowEngine,
     IDeliveryRouteRepository routeRepository) : ITrackingSimulationService
 {
     private const double DefaultSpeedMetersPerSecond = 12.5;
-    private readonly ConcurrentDictionary<Guid, ActiveDeliverySimulation> _activeSimulations = new();
+    private const double ArrivingProgressThresholdPercent = 90;
+    private static readonly TimeSpan ArrivingEtaThreshold = TimeSpan.FromMinutes(2);
 
-    public IReadOnlyList<ActiveDeliverySimulation> GetActiveSimulations => _activeSimulations.Values.ToList();
+    private readonly ConcurrentDictionary<Guid, ActiveDeliverySimulation> _activeSimulations = new();
 
     public async Task StartTrackingAsync(Guid deliveryId, CancellationToken cancellationToken = default)
     {
@@ -23,7 +28,7 @@ public class InMemoryTrackingSimulationService(
         if (delivery is null) return;
 
         var route = await routeRepository.GetByDeliveryIdAsync(deliveryId, cancellationToken);
-        if (route is null || route.Points.Count == 0) return;
+        if (route is null || route.Points.Count < 2) return;
 
         var firstPoint = route.Points[0];
         var simulation = new ActiveDeliverySimulation
@@ -61,91 +66,164 @@ public class InMemoryTrackingSimulationService(
             return;
         }
 
-        var currentIndex = simulation.CurrentRoutePointIndex;
-        var nextIndex = currentIndex + 1;
-
-        if (nextIndex >= route.Points.Count)
+        var delivery = await deliveryRepository.GetByIdAsync(simulation.DeliveryId, cancellationToken);
+        if (delivery is null || delivery.State is DeliveryState.Delivered or DeliveryState.Closed)
         {
             await StopTrackingAsync(simulation.DeliveryId, cancellationToken);
             return;
         }
 
-        var currentPoint = route.Points[currentIndex];
-        var nextPoint = route.Points[nextIndex];
+        MoveAlongRoute(simulation, route);
 
-        var segmentDistance = nextPoint.DistanceFromPreviousMeters;
-        if (segmentDistance <= 0)
-        {
-            simulation.CurrentRoutePointIndex++;
-            simulation.ProgressToNextPoint = 0;
-            return;
-        }
+        simulation.CurrentPosition = CalculateCurrentPosition(route, simulation);
 
-        var now = DateTimeOffset.UtcNow;
-        var elapsedSeconds = Math.Max(0, (now - simulation.LastUpdateAt).TotalSeconds);
-        simulation.LastUpdateAt = now;
-
-        var distanceTravelled = simulation.CurrentSpeedMetersPerSecond * elapsedSeconds;
-        var progressDelta = distanceTravelled / segmentDistance;
-
-        simulation.ProgressToNextPoint += progressDelta;
-
-        while (simulation.ProgressToNextPoint >= 1)
-        {
-            simulation.CurrentRoutePointIndex++;
-            simulation.ProgressToNextPoint -= 1;
-            currentIndex = simulation.CurrentRoutePointIndex;
-            nextIndex = currentIndex + 1;
-            if (nextIndex >= route.Points.Count)
-            {
-                var finalPoint = route.Points[^1];
-                simulation.CurrentPosition = new GeoPoint(finalPoint.Latitude, finalPoint.Longitude);
-                await UpdateDeliveryPositionAsync(simulation.DeliveryId, simulation.CurrentPosition, route, simulation,
-                    cancellationToken);
-                await StopTrackingAsync(simulation.DeliveryId, cancellationToken);
-                return;
-            }
-
-            currentPoint = route.Points[currentIndex];
-            nextPoint = route.Points[nextIndex];
-        }
-
-        var interpolatedPosition = Interpolate(currentPoint.Latitude, currentPoint.Longitude,
-            nextPoint.Latitude, nextPoint.Longitude, simulation.ProgressToNextPoint);
-
-        simulation.CurrentPosition = interpolatedPosition;
-
-        await UpdateDeliveryPositionAsync(simulation.DeliveryId, simulation.CurrentPosition, route, simulation,
-            cancellationToken);
-    }
-
-    private async Task UpdateDeliveryPositionAsync(Guid deliveryId, GeoPoint position, DeliveryRoute route,
-        ActiveDeliverySimulation simulation, CancellationToken cancellationToken)
-    {
-        var delivery = await deliveryRepository.GetByIdAsync(deliveryId, cancellationToken);
-        if (delivery is null) return;
+        var adjustedSpeedMetersPerSecond = CalculateAdjustedSpeedMetersPerSecond(simulation, route);
 
         var eta = etaService.CalculateEta(route, simulation.CurrentRoutePointIndex,
-            simulation.ProgressToNextPoint, simulation.CurrentSpeedMetersPerSecond);
+            simulation.ProgressToNextPoint, adjustedSpeedMetersPerSecond);
 
         var progressPercent = etaService.CalculateProgressPercent(route, simulation.CurrentRoutePointIndex,
             simulation.ProgressToNextPoint);
 
-        delivery.UpdatePosition(position);
+        var isAtFinalPoint = IsAtFinalPoint(simulation, route);
+
+        var nextState = DetermineNextState(delivery.State, progressPercent, adjustedSpeedMetersPerSecond, eta,
+            isAtFinalPoint);
+
+        if (nextState is not null)
+        {
+            var transitionResult = await workflowEngine.TransitionAsync(delivery.Id, nextState.Value,
+                cancellationToken);
+
+            delivery = transitionResult.Delivery;
+        }
+
+        delivery.UpdatePosition(simulation.CurrentPosition);
         delivery.UpdateEta(eta);
 
         await deliveryRepository.UpdateAsync(delivery, cancellationToken);
 
-        await trackingUpdatePublisher.PublishPositionUpdatedAsync(
-            new VehiclePositionUpdated(delivery.Id, position, simulation.CurrentSpeedMetersPerSecond, eta.TotalSeconds,
-                progressPercent, delivery.State, DateTimeOffset.UtcNow), cancellationToken);
+        await trackingUpdatePublisher.PublishPositionUpdatedAsync(new VehiclePositionUpdated(
+            delivery.Id,
+            simulation.CurrentPosition,
+            adjustedSpeedMetersPerSecond,
+            eta.TotalSeconds,
+            progressPercent,
+            delivery.State,
+            DateTimeOffset.UtcNow
+        ), cancellationToken);
+
+        if (delivery.State is DeliveryState.Delivered or DeliveryState.Closed)
+            await StopTrackingAsync(delivery.Id, cancellationToken);
+    }
+
+    private static double CalculateElapsedSeconds(ActiveDeliverySimulation simulation)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        var elapsedSeconds = Math.Max(0, (now - simulation.LastUpdateAt).TotalSeconds);
+        simulation.LastUpdateAt = now;
+
+        return elapsedSeconds;
+    }
+
+    private void MoveAlongRoute(ActiveDeliverySimulation simulation, DeliveryRoute route)
+    {
+        var remainingTimeSeconds = CalculateElapsedSeconds(simulation);
+        while (remainingTimeSeconds > 0)
+        {
+            if (IsAtFinalPoint(simulation, route))
+            {
+                simulation.ProgressToNextPoint = 0;
+                return;
+            }
+
+            var currentIndex = simulation.CurrentRoutePointIndex;
+            var nextIndex = currentIndex + 1;
+
+
+            var nextPoint = route.Points[nextIndex];
+            var segmentDistanceMeters = nextPoint.DistanceFromPreviousMeters;
+
+            if (segmentDistanceMeters <= 0)
+            {
+                simulation.CurrentRoutePointIndex++;
+                simulation.ProgressToNextPoint = 0;
+                continue;
+            }
+
+            var adjustedSpeedMetersPerSecond = CalculateAdjustedSpeedMetersPerSecond(simulation, route);
+            if (adjustedSpeedMetersPerSecond <= 0) return;
+
+            var remainingSegmentDistanceMeters = segmentDistanceMeters * (1 - simulation.ProgressToNextPoint);
+
+            var timeToFinishSegmentSeconds = remainingSegmentDistanceMeters / adjustedSpeedMetersPerSecond;
+
+            if (remainingTimeSeconds >= timeToFinishSegmentSeconds)
+            {
+                remainingTimeSeconds -= timeToFinishSegmentSeconds;
+                simulation.CurrentRoutePointIndex++;
+                simulation.ProgressToNextPoint = 0;
+            }
+            else
+            {
+                var distanceTravelledMeters = remainingTimeSeconds * adjustedSpeedMetersPerSecond;
+                simulation.ProgressToNextPoint += distanceTravelledMeters / segmentDistanceMeters;
+                remainingTimeSeconds = 0;
+            }
+        }
+    }
+
+    private static DeliveryState? DetermineNextState(DeliveryState currentState, double progressPercent,
+        double adjustedSpeedMetersPerSecond, TimeSpan eta, bool isAtFinalPoint)
+    {
+        var canUseEtaThreshold = adjustedSpeedMetersPerSecond > 0;
+        return currentState switch
+        {
+            DeliveryState.InTransit when progressPercent >= ArrivingProgressThresholdPercent ||
+                                         (canUseEtaThreshold && eta <= ArrivingEtaThreshold) => DeliveryState.Arriving,
+
+            DeliveryState.Arriving when isAtFinalPoint => DeliveryState.Delivered,
+
+            _ => null
+        };
+    }
+
+    private static bool IsAtFinalPoint(ActiveDeliverySimulation simulation, DeliveryRoute route)
+    {
+        return simulation.CurrentRoutePointIndex >= route.Points.Count - 1;
+    }
+
+    private static GeoPoint CalculateCurrentPosition(DeliveryRoute route, ActiveDeliverySimulation simulation)
+    {
+        if (IsAtFinalPoint(simulation, route))
+        {
+            var finalPoint = route.Points[^1];
+            return new GeoPoint(finalPoint.Latitude, finalPoint.Longitude);
+        }
+
+        var currentPoint = route.Points[simulation.CurrentRoutePointIndex];
+        var nextPoint = route.Points[simulation.CurrentRoutePointIndex + 1];
+
+        return Interpolate(currentPoint.Latitude, currentPoint.Longitude, nextPoint.Latitude, nextPoint.Longitude,
+            simulation.ProgressToNextPoint);
+    }
+
+    private double CalculateAdjustedSpeedMetersPerSecond(ActiveDeliverySimulation simulation, DeliveryRoute route)
+    {
+        if (IsAtFinalPoint(simulation, route)) return 0;
+        var trafficMultiplier = trafficSimulationService.GetSpeedMultiplier(route.TrafficSegments,
+            simulation.CurrentRoutePointIndex);
+        return simulation.CurrentSpeedMetersPerSecond * trafficMultiplier;
     }
 
     private static GeoPoint Interpolate(double fromLatitude, double fromLongitude, double toLatitude,
         double toLongitude, double progress)
     {
-        var latitude = fromLatitude + (toLatitude - fromLatitude) * progress;
-        var longitude = fromLongitude + (toLongitude - fromLongitude) * progress;
+        var clampedProgress = Math.Clamp(progress, 0, 1);
+
+        var latitude = fromLatitude + (toLatitude - fromLatitude) * clampedProgress;
+        var longitude = fromLongitude + (toLongitude - fromLongitude) * clampedProgress;
         return new GeoPoint(latitude, longitude);
     }
 }

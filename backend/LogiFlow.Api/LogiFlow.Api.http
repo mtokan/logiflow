@@ -1,5 +1,5 @@
 @baseUrl = http://localhost:5007
-@deliveryId = 632bba86-2cd8-4d58-b6f6-4a43b34f0e40
+@deliveryId = e92c39cc-c656-44f7-8b8f-20af908a8744
 
 ### Create delivery
 POST {{baseUrl}}/api/deliveries

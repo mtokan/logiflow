@@ -15,7 +15,8 @@ public sealed class DeliveriesController(
     IDeliveryRepository deliveryRepository,
     IDeliveryEventRepository eventRepository,
     IDeliveryRouteRepository routeRepository,
-    IWorkflowEngine workflowEngine
+    IWorkflowEngine workflowEngine,
+    ITrackingSimulationService trackingSimulationService
 ) : ControllerBase
 {
     [HttpPost]
@@ -69,6 +70,17 @@ public sealed class DeliveriesController(
         try
         {
             var result = await workflowEngine.TransitionAsync(id, request.TargetState, cancellationToken);
+
+            switch (result.Delivery.State)
+            {
+                case DeliveryState.InTransit:
+                    await trackingSimulationService.StartTrackingAsync(result.Delivery.Id, cancellationToken);
+                    break;
+                case DeliveryState.Delivered or DeliveryState.Closed:
+                    await trackingSimulationService.StopTrackingAsync(result.Delivery.Id, cancellationToken);
+                    break;
+            }
+
             return Ok(result.Delivery);
         }
         catch (DeliveryNotFoundException)

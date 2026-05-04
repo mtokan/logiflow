@@ -15,21 +15,28 @@ public sealed class DeliverySimulationBackgroundService(
     {
         logger.LogInformation("Delivery simulation background service started.");
 
-        while (!stoppingToken.IsCancellationRequested)
+        try
         {
-            try
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await trackingSimulationService.TickAsync(stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception exception)
-            {
-                logger.LogError(exception, "Error occurred during delivery simulation.");
-            }
+                try
+                {
+                    await trackingSimulationService.TickAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception exception)
+                {
+                    logger.LogError(exception, "Error occurred during delivery simulation.");
+                }
 
-            await Task.Delay(TickInterval, stoppingToken);
+                await Task.Delay(TickInterval, stoppingToken);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
         }
 
         logger.LogInformation("Delivery simulation background service stopped.");

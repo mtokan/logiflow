@@ -47,9 +47,28 @@
 
     connection.on("VehiclePositionUpdated", (update) => {
         latestUpdatesByDeliveryId[update.deliveryId] = {
-            ...update,
+            ...latestUpdatesByDeliveryId[update.deliveryId],
+            position: update,
             receivedAt: new Date().toLocaleTimeString()
         }
+        messagesElement.textContent = JSON.stringify(latestUpdatesByDeliveryId, null, 2);
+    });
+
+    connection.on("DeliveryStateChanged", (update) => {
+        latestUpdatesByDeliveryId[update.deliveryId] = {
+            ...latestUpdatesByDeliveryId[update.deliveryId],
+            stateChanged: update,
+            receivedAt: new Date().toLocaleTimeString()
+        };
+        messagesElement.textContent = JSON.stringify(latestUpdatesByDeliveryId, null, 2);
+    });
+
+    connection.on("DeliveryEventCreated", (event) => {
+        latestUpdatesByDeliveryId[event.deliveryId] = {
+            ...latestUpdatesByDeliveryId[event.deliveryId],
+            lastEvent: event,
+            receivedAt: new Date().toLocaleTimeString()
+        };
         messagesElement.textContent = JSON.stringify(latestUpdatesByDeliveryId, null, 2);
     });
 

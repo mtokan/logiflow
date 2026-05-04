@@ -4,7 +4,7 @@ using LogiFlow.Domain.ValueObjects;
 
 namespace LogiFlow.Infrastructure.Routing;
 
-public class MockRoutingService : IRoutingService
+public class MockRoutingService(ITrafficSimulationService trafficSimulationService) : IRoutingService
 {
     private const int NumberOfPoints = 25;
     private const double AverageSpeedMetersPerSecond = 12.5;
@@ -37,11 +37,14 @@ public class MockRoutingService : IRoutingService
 
         var estimatedDuration = TimeSpan.FromSeconds(totalDistance / AverageSpeedMetersPerSecond);
 
+        var trafficSegments = trafficSimulationService.GenerateTrafficSegments(points.Count);
+
         var route = new DeliveryRoute
         {
             DeliveryId = deliveryId,
             Points = points,
             TotalDistanceMeters = totalDistance,
+            TrafficSegments = trafficSegments,
             EstimatedDuration = estimatedDuration
         };
 
