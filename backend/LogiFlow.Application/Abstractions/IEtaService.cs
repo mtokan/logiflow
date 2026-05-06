@@ -8,7 +8,7 @@ public interface IEtaService
         DeliveryRoute route,
         int currentRoutePointIndex,
         double progressToNextPoint,
-        double speedMetersPerSecond);
+        double baseSpeedMetersPerSecond);
 
     double CalculateProgressPercent(
         DeliveryRoute route,

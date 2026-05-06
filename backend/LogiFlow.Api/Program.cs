@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using LogiFlow.Api.Hubs;
+using LogiFlow.Api.Middleware;
 using LogiFlow.Api.Realtime;
 using LogiFlow.Application;
 using LogiFlow.Application.Abstractions;
@@ -26,6 +27,8 @@ builder.Services.AddSingleton<ITrackingUpdatePublisher, SignalRTrackingUpdatePub
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 // Configure the HTTP request pipeline. 
 if (app.Environment.IsDevelopment())

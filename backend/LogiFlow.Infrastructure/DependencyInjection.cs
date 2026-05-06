@@ -14,6 +14,7 @@ public static class DependencyInjection
         services.AddSingleton<IDeliveryRepository, InMemoryDeliveryRepository>();
         services.AddSingleton<IDeliveryEventRepository, InMemoryDeliveryEventRepository>();
         services.AddSingleton<IDeliveryRouteRepository, InMemoryDeliveryRouteRepository>();
+        services.AddSingleton<IVehicleRepository, InMemoryVehicleRepository>();
 
         services.AddSingleton<ITrafficSimulationService, TrafficSimulationService>();
         services.AddSingleton<IRoutingService, MockRoutingService>();

@@ -1,6 +1,5 @@
 using LogiFlow.Application.Abstractions;
 using LogiFlow.Application.Deliveries;
-using LogiFlow.Application.Tracking;
 using LogiFlow.Domain.Entities;
 using LogiFlow.Domain.Enums;
 
@@ -8,15 +7,15 @@ namespace LogiFlow.Application.Workflow;
 
 public class WorkflowEngine(
     IDeliveryRepository deliveryRepository,
-    IDeliveryEventRepository eventRepository,
     IRoutingService routingService,
-    ITrackingUpdatePublisher trackingUpdatePublisher,
+    IDeliveryEventService deliveryEventService,
     IDeliveryRouteRepository routeRepository)
     : IWorkflowEngine
 {
     private static readonly IReadOnlyDictionary<DeliveryState, DeliveryState[]> AllowedTransitions =
         new Dictionary<DeliveryState, DeliveryState[]>
         {
+            [DeliveryState.Created] = [DeliveryState.Planned],
             [DeliveryState.Planned] = [DeliveryState.Assigned],
             [DeliveryState.Assigned] = [DeliveryState.InTransit],
             [DeliveryState.InTransit] = [DeliveryState.Arriving],
@@ -51,7 +50,7 @@ public class WorkflowEngine(
 
         switch (currentState, targetState)
         {
-            case (DeliveryState.Planned, DeliveryState.Assigned):
+            case (DeliveryState.Created, DeliveryState.Planned):
                 var route = await routingService.CalculateRouteAsync(delivery.Id, delivery.Origin, delivery.Destination,
                     cancellationToken);
                 await routeRepository.AddAsync(route, cancellationToken);
@@ -65,32 +64,16 @@ public class WorkflowEngine(
                               $"and total distance {route.TotalDistanceMeters:F0} meters."
                 });
                 break;
+            case (DeliveryState.Planned, DeliveryState.Assigned):
+                if (delivery.AssignedVehicleId is null)
+                    throw new InvalidWorkflowTransitionException(currentState, targetState,
+                        "Delivery must have an assigned vehicle before it can move to Assigned.");
+                break;
         }
 
         await deliveryRepository.UpdateAsync(delivery, cancellationToken);
 
-        foreach (var deliveryEvent in events) await eventRepository.AddAsync(deliveryEvent, cancellationToken);
-
-        foreach (var deliveryEvent in events)
-        {
-            await trackingUpdatePublisher.PublishDeliveryEventCreatedAsync(new DeliveryEventCreated(
-                deliveryEvent.Id,
-                deliveryEvent.DeliveryId,
-                deliveryEvent.Type,
-                deliveryEvent.FromState,
-                deliveryEvent.ToState,
-                deliveryEvent.Message,
-                deliveryEvent.CreatedAt
-            ), cancellationToken);
-
-            if (deliveryEvent is { Type: DeliveryEventType.StateChanged, FromState: not null, ToState: not null })
-                await trackingUpdatePublisher.PublishDeliveryStateChangedAsync(new DeliveryStateChanged(
-                    deliveryEvent.DeliveryId,
-                    deliveryEvent.FromState.Value,
-                    deliveryEvent.ToState.Value,
-                    deliveryEvent.CreatedAt
-                ), cancellationToken);
-        }
+        await deliveryEventService.AppendManyAsync(events, cancellationToken);
 
         return new WorkflowTransitionResult(delivery, events);
     }

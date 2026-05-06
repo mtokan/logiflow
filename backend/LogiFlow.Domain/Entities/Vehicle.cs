@@ -1,3 +1,4 @@
+using LogiFlow.Domain.Enums;
 using LogiFlow.Domain.ValueObjects;
 
 namespace LogiFlow.Domain.Entities;
@@ -8,17 +9,37 @@ public sealed class Vehicle
     public required string Name { get; init; }
     public GeoPoint? CurrentPosition { get; private set; }
     public double CurrentSpeedKmh { get; private set; }
-    public bool IsActive { get; private set; }
+    public VehicleStatus Status { get; private set; } = VehicleStatus.Available;
+    public Guid? AssignedDeliveryId { get; private set; }
+    public bool IsActive => Status == VehicleStatus.InTransit;
 
-    public void Activate()
+    public void AssignToDelivery(Guid deliveryId)
     {
-        IsActive = true;
+        if (Status != VehicleStatus.Available)
+            throw new InvalidOperationException("Vehicle is not available.");
+
+        AssignedDeliveryId = deliveryId;
+        Status = VehicleStatus.Assigned;
     }
 
-    public void Deactivate()
+    public void MarkInTransit()
     {
-        IsActive = false;
+        if (Status != VehicleStatus.Assigned)
+            throw new InvalidOperationException("Vehicle must be assigned before it can start transit.");
+
+        Status = VehicleStatus.InTransit;
+    }
+
+    public void Release()
+    {
+        AssignedDeliveryId = null;
         CurrentSpeedKmh = 0;
+        Status = VehicleStatus.Available;
+    }
+
+    public void MarkUnavailable()
+    {
+        Status = VehicleStatus.Unavailable;
     }
 
     public void UpdatePosition(GeoPoint position, double speedKmh)

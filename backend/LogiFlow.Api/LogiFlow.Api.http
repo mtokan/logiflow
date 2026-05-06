@@ -1,5 +1,14 @@
 @baseUrl = http://localhost:5007
-@deliveryId = e92c39cc-c656-44f7-8b8f-20af908a8744
+@deliveryId = 88fdfa38-22b6-4e9d-a3ea-65281f85b12b
+@vehicleId = 1f485c2d-04a0-4a83-9744-e38eb766cc6e
+
+### Create vehicle
+POST {{baseUrl}}/api/vehicles
+Content-Type: application/json
+
+{
+  "name": "VEH-001"
+}
 
 ### Create delivery
 POST {{baseUrl}}/api/deliveries
@@ -13,30 +22,28 @@ Content-Type: application/json
   "destinationLongitude": 13.3888599
 }
 
-### Get all deliveries
-GET {{baseUrl}}/api/deliveries
+### Plan delivery
+POST {{baseUrl}}/api/deliveries/{{deliveryId}}/plan
 
-### Get delivery by id
-GET {{baseUrl}}/api/deliveries/{{deliveryId}}
-
-### Transition to Assigned
-POST {{baseUrl}}/api/deliveries/{{deliveryId}}/transition
+### Assign vehicle
+POST {{baseUrl}}/api/deliveries/{{deliveryId}}/assign-vehicle
 Content-Type: application/json
 
 {
-  "targetState": "Assigned"
+  "vehicleId": "{{vehicleId}}"
 }
+
+### Start delivery
+POST {{baseUrl}}/api/deliveries/{{deliveryId}}/start
+
+### Get delivery
+GET {{baseUrl}}/api/deliveries/{{deliveryId}}
 
 ### Get route
 GET {{baseUrl}}/api/deliveries/{{deliveryId}}/route
 
-### Transition to InTransit
-POST {{baseUrl}}/api/deliveries/{{deliveryId}}/transition
-Content-Type: application/json
-
-{
-  "targetState": "InTransit"
-}
-
 ### Get events
 GET {{baseUrl}}/api/deliveries/{{deliveryId}}/events
+
+### Close delivery
+POST {{baseUrl}}/api/deliveries/{{deliveryId}}/close

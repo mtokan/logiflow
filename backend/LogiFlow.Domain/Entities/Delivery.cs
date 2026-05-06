@@ -10,7 +10,7 @@ public sealed class Delivery
     public required GeoPoint Origin { get; init; }
     public required GeoPoint Destination { get; init; }
     public GeoPoint? CurrentPosition { get; private set; }
-    public DeliveryState State { get; private set; } = DeliveryState.Planned;
+    public DeliveryState State { get; private set; } = DeliveryState.Created;
     public Guid? AssignedVehicleId { get; private set; }
     public Guid? RouteId { get; private set; }
     public TimeSpan? Eta { get; private set; }

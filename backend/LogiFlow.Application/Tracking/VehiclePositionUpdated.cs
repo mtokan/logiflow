@@ -5,6 +5,7 @@ namespace LogiFlow.Application.Tracking;
 
 public record VehiclePositionUpdated(
     Guid DeliveryId,
+    Guid VehicleId,
     GeoPoint Position,
     double SpeedMetersPerSecond,
     double EtaSeconds,

@@ -1,6 +1,5 @@
 using LogiFlow.Api.Contracts;
 using LogiFlow.Application.Abstractions;
-using LogiFlow.Application.Deliveries;
 using LogiFlow.Application.Workflow;
 using LogiFlow.Domain.Entities;
 using LogiFlow.Domain.Enums;
@@ -13,14 +12,16 @@ namespace LogiFlow.Api.Controllers;
 [Route("api/deliveries")]
 public sealed class DeliveriesController(
     IDeliveryRepository deliveryRepository,
-    IDeliveryEventRepository eventRepository,
+    IDeliveryEventService deliveryEventService,
     IDeliveryRouteRepository routeRepository,
+    IVehicleRepository vehicleRepository,
     IWorkflowEngine workflowEngine,
     ITrackingSimulationService trackingSimulationService
 ) : ControllerBase
 {
     [HttpPost]
-    public async Task<ActionResult<Delivery>> Create(CreateDeliveryRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<DeliveryResponse>> Create(CreateDeliveryRequest request,
+        CancellationToken cancellationToken)
     {
         var delivery = new Delivery
         {
@@ -38,79 +39,87 @@ public sealed class DeliveriesController(
             Message = $"Delivery {delivery.Code} was created."
         };
 
-        await eventRepository.AddAsync(deliveryEvent, cancellationToken);
+        await deliveryEventService.AppendAsync(deliveryEvent, cancellationToken);
 
         return CreatedAtAction(
             nameof(GetById),
             new { id = delivery.Id },
-            delivery
+            delivery.ToResponse()
         );
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<Delivery>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyList<DeliveryResponse>>> GetAll(CancellationToken cancellationToken)
     {
         var deliveries = await deliveryRepository.GetAllAsync(cancellationToken);
-        return Ok(deliveries);
+        return Ok(deliveries.Select(delivery => delivery.ToResponse()).ToList());
     }
 
-    [HttpGet("id:guid")]
-    public async Task<ActionResult<Delivery>> GetById(Guid id, CancellationToken cancellationToken)
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<DeliveryResponse>> GetById(Guid id, CancellationToken cancellationToken)
     {
         var delivery = await deliveryRepository.GetByIdAsync(id, cancellationToken);
         if (delivery is null) return NotFound();
 
-        return Ok(delivery);
+        return Ok(delivery.ToResponse());
     }
 
-    [HttpPost("{id:guid}/transition")]
-    public async Task<ActionResult<Delivery>> Transition(Guid id, TransitionDeliveryRequest request,
-        CancellationToken cancellationToken)
+    [HttpPost("{id:guid}/plan")]
+    public async Task<ActionResult<DeliveryResponse>> Plan(Guid id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var result = await workflowEngine.TransitionAsync(id, request.TargetState, cancellationToken);
+        var result = await workflowEngine.TransitionAsync(id, DeliveryState.Planned, cancellationToken);
+        return Ok(result.Delivery.ToResponse());
+    }
 
-            switch (result.Delivery.State)
+    [HttpPost("{id:guid}/start")]
+    public async Task<ActionResult<DeliveryResponse>> Start(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await workflowEngine.TransitionAsync(id, DeliveryState.InTransit, cancellationToken);
+
+        if (result.Delivery.AssignedVehicleId is not { } vehicleId)
+            return BadRequest(new { error = "Delivery does not have an assigned vehicle." });
+
+        var vehicle = await vehicleRepository.GetByIdAsync(vehicleId, cancellationToken);
+        if (vehicle is null) return NotFound(new { error = "Assigned vehicle was not found." });
+
+        vehicle.MarkInTransit();
+
+        await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
+        await trackingSimulationService.StartTrackingAsync(result.Delivery.Id, cancellationToken);
+
+        return Ok(result.Delivery.ToResponse());
+    }
+
+    [HttpPost("{id:guid}/close")]
+    public async Task<ActionResult<DeliveryResponse>> Close(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await workflowEngine.TransitionAsync(id, DeliveryState.Closed, cancellationToken);
+        if (result.Delivery.AssignedVehicleId is { } vehicleId)
+        {
+            var vehicle = await vehicleRepository.GetByIdAsync(vehicleId, cancellationToken);
+            if (vehicle is not null)
             {
-                case DeliveryState.InTransit:
-                    await trackingSimulationService.StartTrackingAsync(result.Delivery.Id, cancellationToken);
-                    break;
-                case DeliveryState.Delivered or DeliveryState.Closed:
-                    await trackingSimulationService.StopTrackingAsync(result.Delivery.Id, cancellationToken);
-                    break;
+                vehicle.Release();
+                await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
             }
-
-            return Ok(result.Delivery);
         }
-        catch (DeliveryNotFoundException)
-        {
-            return NotFound();
-        }
-        catch (InvalidWorkflowTransitionException exception)
-        {
-            return BadRequest(new
-            {
-                error = exception.Message,
-                exception.CurrentState,
-                exception.TargetState
-            });
-        }
+        await trackingSimulationService.StopTrackingAsync(result.Delivery.Id, cancellationToken);
+        return Ok(result.Delivery.ToResponse());
     }
 
     [HttpGet("{id:guid}/events")]
-    public async Task<ActionResult<IReadOnlyList<DeliveryEvent>>> GetEvents(Guid id,
+    public async Task<ActionResult<IReadOnlyList<DeliveryEventResponse>>> GetEvents(Guid id,
         CancellationToken cancellationToken)
     {
         var delivery = await deliveryRepository.GetByIdAsync(id, cancellationToken);
         if (delivery is null) return NotFound();
 
-        var events = await eventRepository.GetByDeliveryIdAsync(id, cancellationToken);
-        return Ok(events);
+        var events = await deliveryEventService.GetTimelineAsync(id, cancellationToken);
+        return Ok(events.Select(deliveryEvent => deliveryEvent.ToResponse()).ToList());
     }
 
     [HttpGet("{id:guid}/route")]
-    public async Task<ActionResult<DeliveryRoute>> GetRoute(Guid id, CancellationToken cancellationToken)
+    public async Task<ActionResult<DeliveryRouteResponse>> GetRoute(Guid id, CancellationToken cancellationToken)
     {
         var delivery = await deliveryRepository.GetByIdAsync(id, cancellationToken);
         if (delivery is null) return NotFound();
@@ -118,6 +127,32 @@ public sealed class DeliveriesController(
         var route = await routeRepository.GetByDeliveryIdAsync(id, cancellationToken);
         if (route is null) return NotFound(new { error = "Route has not been generated yet." });
 
-        return Ok(route);
+        return Ok(route.ToResponse());
+    }
+
+    [HttpPost("{id:guid}/assign-vehicle")]
+    public async Task<ActionResult<DeliveryResponse>> AssignVehicle(Guid id, AssignVehicleRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.VehicleId == Guid.Empty) return BadRequest(new { error = "VehicleId is required." });
+
+        var delivery = await deliveryRepository.GetByIdAsync(id, cancellationToken);
+        if (delivery is null) return NotFound(new { error = "Delivery was not found." });
+        if (delivery.State != DeliveryState.Planned)
+            return BadRequest(new { error = "Delivery must be planned before assigning a vehicle." });
+
+        var vehicle = await vehicleRepository.GetByIdAsync(request.VehicleId, cancellationToken);
+        if (vehicle is null) return NotFound(new { error = "Vehicle was not found." });
+        if (vehicle.Status != VehicleStatus.Available)
+            return BadRequest(new { error = "Vehicle is not available." });
+
+        vehicle.AssignToDelivery(delivery.Id);
+        delivery.AssignVehicle(vehicle.Id);
+
+        await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
+        await deliveryRepository.UpdateAsync(delivery, cancellationToken);
+
+        var result = await workflowEngine.TransitionAsync(delivery.Id, DeliveryState.Assigned, cancellationToken);
+        return Ok(result.Delivery.ToResponse());
     }
 }

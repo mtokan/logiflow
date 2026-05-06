@@ -10,6 +10,8 @@ namespace LogiFlow.Infrastructure.Simulation;
 
 public sealed class InMemoryTrackingSimulationService(
     IDeliveryRepository deliveryRepository,
+    IVehicleRepository vehicleRepository,
+    IDeliveryTrackingPolicy deliveryTrackingPolicy,
     ITrackingUpdatePublisher trackingUpdatePublisher,
     IEtaService etaService,
     ITrafficSimulationService trafficSimulationService,
@@ -17,15 +19,15 @@ public sealed class InMemoryTrackingSimulationService(
     IDeliveryRouteRepository routeRepository) : ITrackingSimulationService
 {
     private const double DefaultSpeedMetersPerSecond = 12.5;
-    private const double ArrivingProgressThresholdPercent = 90;
-    private static readonly TimeSpan ArrivingEtaThreshold = TimeSpan.FromMinutes(2);
 
     private readonly ConcurrentDictionary<Guid, ActiveDeliverySimulation> _activeSimulations = new();
 
     public async Task StartTrackingAsync(Guid deliveryId, CancellationToken cancellationToken = default)
     {
+        if (_activeSimulations.ContainsKey(deliveryId)) return;
+
         var delivery = await deliveryRepository.GetByIdAsync(deliveryId, cancellationToken);
-        if (delivery is null) return;
+        if (delivery?.AssignedVehicleId is null) return;
 
         var route = await routeRepository.GetByDeliveryIdAsync(deliveryId, cancellationToken);
         if (route is null || route.Points.Count < 2) return;
@@ -67,9 +69,17 @@ public sealed class InMemoryTrackingSimulationService(
         }
 
         var delivery = await deliveryRepository.GetByIdAsync(simulation.DeliveryId, cancellationToken);
-        if (delivery is null || delivery.State is DeliveryState.Delivered or DeliveryState.Closed)
+        if (delivery is null || delivery.State is DeliveryState.Delivered or DeliveryState.Closed ||
+            delivery.AssignedVehicleId is not { } vehicleId)
         {
             await StopTrackingAsync(simulation.DeliveryId, cancellationToken);
+            return;
+        }
+
+        var vehicle = await vehicleRepository.GetByIdAsync(vehicleId, cancellationToken);
+        if (vehicle is null)
+        {
+            await StopTrackingAsync(delivery.Id, cancellationToken);
             return;
         }
 
@@ -80,15 +90,15 @@ public sealed class InMemoryTrackingSimulationService(
         var adjustedSpeedMetersPerSecond = CalculateAdjustedSpeedMetersPerSecond(simulation, route);
 
         var eta = etaService.CalculateEta(route, simulation.CurrentRoutePointIndex,
-            simulation.ProgressToNextPoint, adjustedSpeedMetersPerSecond);
+            simulation.ProgressToNextPoint, simulation.CurrentSpeedMetersPerSecond);
 
         var progressPercent = etaService.CalculateProgressPercent(route, simulation.CurrentRoutePointIndex,
             simulation.ProgressToNextPoint);
 
         var isAtFinalPoint = IsAtFinalPoint(simulation, route);
 
-        var nextState = DetermineNextState(delivery.State, progressPercent, adjustedSpeedMetersPerSecond, eta,
-            isAtFinalPoint);
+        var nextState = deliveryTrackingPolicy.DetermineNextState(delivery.State, progressPercent, eta,
+            adjustedSpeedMetersPerSecond, isAtFinalPoint);
 
         if (nextState is not null)
         {
@@ -103,8 +113,12 @@ public sealed class InMemoryTrackingSimulationService(
 
         await deliveryRepository.UpdateAsync(delivery, cancellationToken);
 
+        vehicle.UpdatePosition(simulation.CurrentPosition, adjustedSpeedMetersPerSecond * 3.6);
+        await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
+
         await trackingUpdatePublisher.PublishPositionUpdatedAsync(new VehiclePositionUpdated(
             delivery.Id,
+            vehicleId,
             simulation.CurrentPosition,
             adjustedSpeedMetersPerSecond,
             eta.TotalSeconds,
@@ -114,7 +128,12 @@ public sealed class InMemoryTrackingSimulationService(
         ), cancellationToken);
 
         if (delivery.State is DeliveryState.Delivered or DeliveryState.Closed)
+        {
+            vehicle.Release();
+            
+            await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
             await StopTrackingAsync(delivery.Id, cancellationToken);
+        }
     }
 
     private static double CalculateElapsedSeconds(ActiveDeliverySimulation simulation)
@@ -140,7 +159,6 @@ public sealed class InMemoryTrackingSimulationService(
 
             var currentIndex = simulation.CurrentRoutePointIndex;
             var nextIndex = currentIndex + 1;
-
 
             var nextPoint = route.Points[nextIndex];
             var segmentDistanceMeters = nextPoint.DistanceFromPreviousMeters;
@@ -172,21 +190,6 @@ public sealed class InMemoryTrackingSimulationService(
                 remainingTimeSeconds = 0;
             }
         }
-    }
-
-    private static DeliveryState? DetermineNextState(DeliveryState currentState, double progressPercent,
-        double adjustedSpeedMetersPerSecond, TimeSpan eta, bool isAtFinalPoint)
-    {
-        var canUseEtaThreshold = adjustedSpeedMetersPerSecond > 0;
-        return currentState switch
-        {
-            DeliveryState.InTransit when progressPercent >= ArrivingProgressThresholdPercent ||
-                                         (canUseEtaThreshold && eta <= ArrivingEtaThreshold) => DeliveryState.Arriving,
-
-            DeliveryState.Arriving when isAtFinalPoint => DeliveryState.Delivered,
-
-            _ => null
-        };
     }
 
     private static bool IsAtFinalPoint(ActiveDeliverySimulation simulation, DeliveryRoute route)

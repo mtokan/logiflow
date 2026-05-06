@@ -2,10 +2,11 @@ namespace LogiFlow.Domain.Enums;
 
 public enum DeliveryState
 {
-    Planned = 1,
-    Assigned = 2,
-    InTransit = 3,
-    Arriving = 4,
-    Delivered = 5,
-    Closed = 6
+    Created = 1,
+    Planned = 2,
+    Assigned = 3,
+    InTransit = 4,
+    Arriving = 5,
+    Delivered = 6,
+    Closed = 7
 }
