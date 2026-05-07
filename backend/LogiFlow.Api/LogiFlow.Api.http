@@ -1,6 +1,4 @@
 @baseUrl = http://localhost:5007
-@deliveryId = 88fdfa38-22b6-4e9d-a3ea-65281f85b12b
-@vehicleId = 1f485c2d-04a0-4a83-9744-e38eb766cc6e
 
 ### Create vehicle
 POST {{baseUrl}}/api/vehicles
@@ -9,6 +7,9 @@ Content-Type: application/json
 {
   "name": "VEH-001"
 }
+> {%
+    client.global.set("vehicleId", response.body.id)
+%}
 
 ### Create delivery
 POST {{baseUrl}}/api/deliveries
@@ -21,6 +22,9 @@ Content-Type: application/json
   "destinationLatitude": 52.5170365,
   "destinationLongitude": 13.3888599
 }
+> {%
+    client.global.set("deliveryId", response.body.id)
+%}
 
 ### Plan delivery
 POST {{baseUrl}}/api/deliveries/{{deliveryId}}/plan
@@ -47,3 +51,10 @@ GET {{baseUrl}}/api/deliveries/{{deliveryId}}/events
 
 ### Close delivery
 POST {{baseUrl}}/api/deliveries/{{deliveryId}}/close
+
+### Clear global
+GET https://httpbin.org/status/204
+
+> {%
+    client.global.clearAll()
+%}
