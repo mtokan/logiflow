@@ -113,10 +113,7 @@ public sealed class InMemoryTrackingSimulationService(
 
         await deliveryRepository.UpdateAsync(delivery, cancellationToken);
 
-        vehicle.UpdatePosition(simulation.CurrentPosition, adjustedSpeedMetersPerSecond * 3.6);
-        await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
-
-        await trackingUpdatePublisher.PublishPositionUpdatedAsync(new VehiclePositionUpdated(
+        await trackingUpdatePublisher.PublishDeliveryPositionUpdatedAsync(new DeliveryPositionUpdated(
             delivery.Id,
             vehicleId,
             simulation.CurrentPosition,
@@ -130,7 +127,7 @@ public sealed class InMemoryTrackingSimulationService(
         if (delivery.State is DeliveryState.Delivered or DeliveryState.Closed)
         {
             vehicle.Release();
-            
+
             await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
             await StopTrackingAsync(delivery.Id, cancellationToken);
         }

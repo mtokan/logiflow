@@ -3,7 +3,7 @@ using LogiFlow.Domain.ValueObjects;
 
 namespace LogiFlow.Application.Tracking;
 
-public record VehiclePositionUpdated(
+public record DeliveryPositionUpdated(
     Guid DeliveryId,
     Guid VehicleId,
     GeoPoint Position,

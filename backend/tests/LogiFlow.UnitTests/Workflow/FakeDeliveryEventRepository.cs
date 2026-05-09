@@ -3,24 +3,18 @@ using LogiFlow.Domain.Entities;
 
 namespace LogiFlow.UnitTests.Workflow;
 
-public sealed class FakeDeliveryEventService : IDeliveryEventService
+public sealed class FakeDeliveryEventRepository : IDeliveryEventRepository
 {
     private readonly List<DeliveryEvent> _events = [];
 
-    public Task AppendAsync(DeliveryEvent deliveryEvent, CancellationToken cancellationToken = default)
+    public Task AddAsync(DeliveryEvent deliveryEvent, CancellationToken cancellationToken = default)
     {
         _events.Add(deliveryEvent);
+
         return Task.CompletedTask;
     }
 
-    public Task AppendManyAsync(IReadOnlyList<DeliveryEvent> deliveryEvents,
-        CancellationToken cancellationToken = default)
-    {
-        _events.AddRange(deliveryEvents);
-        return Task.CompletedTask;
-    }
-
-    public Task<IReadOnlyList<DeliveryEvent>> GetTimelineAsync(Guid deliveryId,
+    public Task<IReadOnlyList<DeliveryEvent>> GetByDeliveryIdAsync(Guid deliveryId,
         CancellationToken cancellationToken = default)
     {
         var events = _events

@@ -1,4 +1,5 @@
 using LogiFlow.Api.Contracts;
+using LogiFlow.Api.Realtime;
 using LogiFlow.Application.Abstractions;
 using LogiFlow.Application.Workflow;
 using LogiFlow.Domain.Entities;
@@ -12,11 +13,12 @@ namespace LogiFlow.Api.Controllers;
 [Route("api/deliveries")]
 public sealed class DeliveriesController(
     IDeliveryRepository deliveryRepository,
-    IDeliveryEventService deliveryEventService,
+    IDeliveryEventRepository eventRepository,
     IDeliveryRouteRepository routeRepository,
     IVehicleRepository vehicleRepository,
     IWorkflowEngine workflowEngine,
-    ITrackingSimulationService trackingSimulationService
+    ITrackingSimulationService trackingSimulationService,
+    IRealtimeUpdatePublisher realtimeUpdatePublisher
 ) : ControllerBase
 {
     [HttpPost]
@@ -39,7 +41,14 @@ public sealed class DeliveriesController(
             Message = $"Delivery {delivery.Code} was created."
         };
 
-        await deliveryEventService.AppendAsync(deliveryEvent, cancellationToken);
+        await eventRepository.AddAsync(deliveryEvent, cancellationToken);
+
+        await realtimeUpdatePublisher.PublishDeliveryLogEventAsync(deliveryEvent, cancellationToken);
+
+        await realtimeUpdatePublisher.PublishDeliverySnapshotAsync(
+            delivery,
+            "Created",
+            cancellationToken);
 
         return CreatedAtAction(
             nameof(GetById),
@@ -68,6 +77,9 @@ public sealed class DeliveriesController(
     public async Task<ActionResult<DeliveryResponse>> Plan(Guid id, CancellationToken cancellationToken)
     {
         var result = await workflowEngine.TransitionAsync(id, DeliveryState.Planned, cancellationToken);
+
+        await PublishWorkflowResultAsync(result, "Planned", cancellationToken);
+
         return Ok(result.Delivery.ToResponse());
     }
 
@@ -85,6 +97,11 @@ public sealed class DeliveriesController(
         vehicle.MarkInTransit();
 
         await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
+
+        await PublishWorkflowResultAsync(result, "Started", cancellationToken);
+
+        await realtimeUpdatePublisher.PublishVehicleSnapshotAsync(vehicle, "Started", cancellationToken);
+
         await trackingSimulationService.StartTrackingAsync(result.Delivery.Id, cancellationToken);
 
         return Ok(result.Delivery.ToResponse());
@@ -94,6 +111,7 @@ public sealed class DeliveriesController(
     public async Task<ActionResult<DeliveryResponse>> Close(Guid id, CancellationToken cancellationToken)
     {
         var result = await workflowEngine.TransitionAsync(id, DeliveryState.Closed, cancellationToken);
+        await PublishWorkflowResultAsync(result, "Closed", cancellationToken);
         if (result.Delivery.AssignedVehicleId is { } vehicleId)
         {
             var vehicle = await vehicleRepository.GetByIdAsync(vehicleId, cancellationToken);
@@ -101,8 +119,10 @@ public sealed class DeliveriesController(
             {
                 vehicle.Release();
                 await vehicleRepository.UpdateAsync(vehicle, cancellationToken);
+                await realtimeUpdatePublisher.PublishVehicleSnapshotAsync(vehicle, "Released", cancellationToken);
             }
         }
+
         await trackingSimulationService.StopTrackingAsync(result.Delivery.Id, cancellationToken);
         return Ok(result.Delivery.ToResponse());
     }
@@ -114,7 +134,7 @@ public sealed class DeliveriesController(
         var delivery = await deliveryRepository.GetByIdAsync(id, cancellationToken);
         if (delivery is null) return NotFound();
 
-        var events = await deliveryEventService.GetTimelineAsync(id, cancellationToken);
+        var events = await eventRepository.GetByDeliveryIdAsync(id, cancellationToken);
         return Ok(events.Select(deliveryEvent => deliveryEvent.ToResponse()).ToList());
     }
 
@@ -153,6 +173,22 @@ public sealed class DeliveriesController(
         await deliveryRepository.UpdateAsync(delivery, cancellationToken);
 
         var result = await workflowEngine.TransitionAsync(delivery.Id, DeliveryState.Assigned, cancellationToken);
+
+        await PublishWorkflowResultAsync(result, "Assigned", cancellationToken);
+
+        await realtimeUpdatePublisher.PublishVehicleSnapshotAsync(vehicle, "Assigned", cancellationToken);
+
         return Ok(result.Delivery.ToResponse());
+    }
+
+    private async Task PublishWorkflowResultAsync(
+        WorkflowTransitionResult result,
+        string snapshotReason,
+        CancellationToken cancellationToken)
+    {
+        foreach (var deliveryEvent in result.Events)
+            await realtimeUpdatePublisher.PublishDeliveryLogEventAsync(deliveryEvent, cancellationToken);
+
+        await realtimeUpdatePublisher.PublishDeliverySnapshotAsync(result.Delivery, snapshotReason, cancellationToken);
     }
 }

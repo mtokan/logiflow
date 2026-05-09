@@ -79,9 +79,10 @@ public sealed class WorkflowEngineTests
         var deliveryRepository = new FakeDeliveryRepository(delivery);
         var routeRepository = new FakeDeliveryRouteRepository();
         var routingService = new FakeRoutingService();
-        var eventService = new FakeDeliveryEventService();
+        var eventRepository = new FakeDeliveryEventRepository();
 
-        var workflowEngine = new WorkflowEngine(deliveryRepository, routingService, eventService, routeRepository);
+
+        var workflowEngine = new WorkflowEngine(deliveryRepository, routingService, eventRepository, routeRepository);
 
         return new TestContext(workflowEngine);
     }

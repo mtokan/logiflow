@@ -1,6 +1,5 @@
 using LogiFlow.Application.Abstractions;
 using LogiFlow.Application.Eta;
-using LogiFlow.Application.Events;
 using LogiFlow.Application.Tracking;
 using LogiFlow.Application.Workflow;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,7 +12,6 @@ public static class DependencyInjection
     {
         services.AddSingleton<IWorkflowEngine, WorkflowEngine>();
         services.AddSingleton<IEtaService, EtaService>();
-        services.AddSingleton<IDeliveryEventService, DeliveryEventService>();
         services.AddSingleton<IDeliveryTrackingPolicy, DeliveryTrackingPolicy>();
         return services;
     }

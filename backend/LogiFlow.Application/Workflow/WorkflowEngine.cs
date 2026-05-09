@@ -8,7 +8,7 @@ namespace LogiFlow.Application.Workflow;
 public class WorkflowEngine(
     IDeliveryRepository deliveryRepository,
     IRoutingService routingService,
-    IDeliveryEventService deliveryEventService,
+    IDeliveryEventRepository eventRepository,
     IDeliveryRouteRepository routeRepository)
     : IWorkflowEngine
 {
@@ -72,8 +72,7 @@ public class WorkflowEngine(
         }
 
         await deliveryRepository.UpdateAsync(delivery, cancellationToken);
-
-        await deliveryEventService.AppendManyAsync(events, cancellationToken);
+        foreach (var deliveryEvent in events) await eventRepository.AddAsync(deliveryEvent, cancellationToken);
 
         return new WorkflowTransitionResult(delivery, events);
     }

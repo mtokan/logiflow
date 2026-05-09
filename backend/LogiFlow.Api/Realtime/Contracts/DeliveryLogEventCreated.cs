@@ -1,8 +1,8 @@
 using LogiFlow.Domain.Enums;
 
-namespace LogiFlow.Application.Tracking;
+namespace LogiFlow.Api.Realtime.Contracts;
 
-public record DeliveryEventCreated(
+public sealed record DeliveryLogEventCreated(
     Guid EventId,
     Guid DeliveryId,
     DeliveryEventType Type,

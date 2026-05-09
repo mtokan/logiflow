@@ -1,4 +1,5 @@
 using LogiFlow.Api.Contracts;
+using LogiFlow.Api.Realtime;
 using LogiFlow.Application.Abstractions;
 using LogiFlow.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
@@ -7,7 +8,10 @@ namespace LogiFlow.Api.Controllers;
 
 [ApiController]
 [Route("api/vehicles")]
-public sealed class VehiclesController(IVehicleRepository vehicleRepository) : ControllerBase
+public sealed class VehiclesController(
+    IVehicleRepository vehicleRepository,
+    IRealtimeUpdatePublisher realtimeUpdatePublisher
+) : ControllerBase
 {
     [HttpPost]
     public async Task<ActionResult<VehicleResponse>> Create(CreateVehicleRequest request,
@@ -15,6 +19,8 @@ public sealed class VehiclesController(IVehicleRepository vehicleRepository) : C
     {
         var vehicle = new Vehicle { Name = request.Name };
         await vehicleRepository.AddAsync(vehicle, cancellationToken);
+
+        await realtimeUpdatePublisher.PublishVehicleSnapshotAsync(vehicle, "Created", cancellationToken);
 
         return CreatedAtAction(nameof(GetById), new { id = vehicle.Id }, vehicle.ToResponse());
     }

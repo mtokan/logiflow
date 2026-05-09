@@ -5,23 +5,16 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace LogiFlow.Api.Realtime;
 
-public sealed class SignalRTrackingUpdatePublisher(IHubContext<TrackingHub> hubContext) : ITrackingUpdatePublisher
+public sealed class SignalRTrackingUpdatePublisher(
+    IHubContext<TrackingHub> hubContext)
+    : ITrackingUpdatePublisher
 {
-    public Task PublishPositionUpdatedAsync(VehiclePositionUpdated update,
+    public Task PublishDeliveryPositionUpdatedAsync(DeliveryPositionUpdated update,
         CancellationToken cancellationToken = default)
     {
-        return hubContext.Clients.All.SendAsync("VehiclePositionUpdated", update, cancellationToken);
-    }
-
-    public Task PublishDeliveryStateChangedAsync(DeliveryStateChanged update,
-        CancellationToken cancellationToken = default)
-    {
-        return hubContext.Clients.All.SendAsync("DeliveryStateChanged", update, cancellationToken);
-    }
-
-    public Task PublishDeliveryEventCreatedAsync(DeliveryEventCreated update,
-        CancellationToken cancellationToken = default)
-    {
-        return hubContext.Clients.All.SendAsync("DeliveryEventCreated", update, cancellationToken);
+        return hubContext.Clients.All.SendAsync(
+            "DeliveryPositionUpdated",
+            update,
+            cancellationToken);
     }
 }

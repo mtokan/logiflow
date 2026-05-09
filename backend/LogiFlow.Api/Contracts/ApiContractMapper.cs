@@ -26,8 +26,6 @@ public static class ApiContractMapper
         return new VehicleResponse(
             vehicle.Id,
             vehicle.Name,
-            vehicle.CurrentPosition?.ToResponse(),
-            vehicle.CurrentSpeedKmh,
             vehicle.Status,
             vehicle.AssignedDeliveryId,
             vehicle.IsActive);
