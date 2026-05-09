@@ -10,6 +10,7 @@ import type {
     VehicleSnapshotUpdated
 } from "../types/tracking.ts";
 import {useTrackingHub} from "../features/tracking/useTrackingHub.ts";
+import {DeliveryMap} from "../features/tracking/DeliveryMap.tsx";
 
 export function DashboardPage() {
     const [deliveries, setDeliveries] = useState<Delivery[]>([]);
@@ -139,6 +140,11 @@ export function DashboardPage() {
                     <p>{lastEvent.message}</p>
                 </section>
             )}
+
+            <section className="panel map-panel">
+                <h2>Live Map</h2>
+                <DeliveryMap deliveries={deliveries}/>
+            </section>
 
             <section className="content-grid">
                 <section className="panel">
