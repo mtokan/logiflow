@@ -10,3 +10,15 @@ body,
     width: 100%;
     height: 100%;
 }
+
+.map-tooltip {
+    display: none;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background-color: #233d4d;
+    color: #ffffff;
+    font-size: 14px;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
