@@ -1,0 +1,9 @@
+.app-brand {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    z-index: 20;
+    padding: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+}

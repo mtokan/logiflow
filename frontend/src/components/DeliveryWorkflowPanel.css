@@ -1,0 +1,39 @@
+.delivery-workflow-panel {
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    bottom: 24px;
+    z-index: 20;
+    padding: 20px 24px;
+    border-radius: 20px;
+}
+
+.workflow-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.workflow-panel-state {
+    color: #619b8a;
+}
+
+.delivery-stepper {
+    margin-bottom: 20px;
+}
+
+.workflow-panel-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.workflow-panel-summary {
+    display: flex;
+    gap: 24px;
+}
+
+.workflow-action-button {
+    background-color: #fe7f2d !important;
+}

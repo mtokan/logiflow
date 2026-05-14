@@ -1,0 +1,17 @@
+.app-sidebar .MuiDrawer-paper {
+    top: 64px;
+    width: 320px;
+    height: calc(100vh - 64px);
+    box-sizing: border-box;
+    background-color: #233d4d;
+    color: #ffffff;
+    border-right: none;
+}
+
+.sidebar-content {
+    padding: 12px;
+}
+
+.nested-list-item {
+    padding-left: 32px;
+}

@@ -1,0 +1,30 @@
+.delivery-list-panel {
+    position: absolute;
+    top: 108px;
+    left: 24px;
+    z-index: 20;
+    width: 280px;
+    max-height: calc(100vh - 132px);
+    overflow-y: auto;
+    border-radius: 18px;
+}
+
+.delivery-list-toggle {
+    padding: 14px 16px;
+}
+
+.delivery-list-title {
+    flex: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.delivery-items {
+    padding: 0 10px 10px;
+}
+
+.delivery-list-item {
+    border-radius: 12px;
+    margin-bottom: 6px;
+}
