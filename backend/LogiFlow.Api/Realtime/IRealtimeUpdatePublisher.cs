@@ -9,4 +9,7 @@ public interface IRealtimeUpdatePublisher
     Task PublishDeliverySnapshotAsync(Delivery delivery, string reason, CancellationToken cancellationToken = default);
 
     Task PublishVehicleSnapshotAsync(Vehicle vehicle, string reason, CancellationToken cancellationToken = default);
+
+    Task PublishWarehouseSnapshotAsync(Warehouse warehouse, string reason,
+        CancellationToken cancellationToken = default);
 }

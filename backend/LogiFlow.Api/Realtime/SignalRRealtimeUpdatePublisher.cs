@@ -34,4 +34,13 @@ public sealed class SignalRRealtimeUpdatePublisher(
             vehicle.ToVehicleSnapshotUpdated(reason),
             cancellationToken);
     }
+
+    public Task PublishWarehouseSnapshotAsync(Warehouse warehouse, string reason,
+        CancellationToken cancellationToken = default)
+    {
+        return hubContext.Clients.All.SendAsync(
+            "WarehouseSnapshotUpdated",
+            warehouse.ToWarehouseSnapshotUpdated(reason),
+            cancellationToken);
+    }
 }

@@ -73,4 +73,12 @@ public static class ApiContractMapper
             point.Latitude,
             point.Longitude);
     }
+
+    public static WarehouseResponse ToResponse(this Warehouse warehouse)
+    {
+        return new WarehouseResponse(
+            warehouse.Id,
+            warehouse.Name,
+            warehouse.Location.ToResponse());
+    }
 }

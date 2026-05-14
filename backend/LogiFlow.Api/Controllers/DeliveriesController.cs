@@ -15,6 +15,7 @@ public sealed class DeliveriesController(
     IDeliveryRepository deliveryRepository,
     IDeliveryEventRepository eventRepository,
     IDeliveryRouteRepository routeRepository,
+    IWarehouseRepository warehouseRepository,
     IVehicleRepository vehicleRepository,
     IWorkflowEngine workflowEngine,
     ITrackingSimulationService trackingSimulationService,
@@ -25,10 +26,13 @@ public sealed class DeliveriesController(
     public async Task<ActionResult<DeliveryResponse>> Create(CreateDeliveryRequest request,
         CancellationToken cancellationToken)
     {
+        var warehouse = await warehouseRepository.GetByIdAsync(request.WarehouseId, cancellationToken);
+        if (warehouse is null) return NotFound(new { error = "Warehouse was not found." });
+
         var delivery = new Delivery
         {
             Code = request.Code,
-            Origin = new GeoPoint(request.OriginLatitude, request.OriginLongitude),
+            Origin = warehouse.Location,
             Destination = new GeoPoint(request.DestinationLatitude, request.DestinationLongitude)
         };
 
@@ -45,16 +49,9 @@ public sealed class DeliveriesController(
 
         await realtimeUpdatePublisher.PublishDeliveryLogEventAsync(deliveryEvent, cancellationToken);
 
-        await realtimeUpdatePublisher.PublishDeliverySnapshotAsync(
-            delivery,
-            "Created",
-            cancellationToken);
+        await realtimeUpdatePublisher.PublishDeliverySnapshotAsync(delivery, "Created", cancellationToken);
 
-        return CreatedAtAction(
-            nameof(GetById),
-            new { id = delivery.Id },
-            delivery.ToResponse()
-        );
+        return CreatedAtAction(nameof(GetById), new { id = delivery.Id }, delivery.ToResponse());
     }
 
     [HttpGet]
